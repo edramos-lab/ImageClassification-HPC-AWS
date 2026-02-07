@@ -66,7 +66,18 @@ else
 fi
 
 # ---------------------------------------------------------------------------
-# 6. Set environment variables for convenience
+# 6. Install Python dependencies for training script
+# ---------------------------------------------------------------------------
+echo ">>> Installing Python packages..."
+sudo -u ubuntu pip install --no-cache-dir \
+  mlflow \
+  timm \
+  pytorch-grad-cam \
+  torchmetrics \
+  albumentations
+
+# ---------------------------------------------------------------------------
+# 7. Set environment variables for convenience
 # ---------------------------------------------------------------------------
 ENV_FILE="/home/ubuntu/.bashrc"
 {
