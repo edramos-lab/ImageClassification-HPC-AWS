@@ -94,7 +94,7 @@ resource "aws_security_group" "cluster_sg" {
 
   # Intra-cluster: all TCP (NCCL control plane, data transfer)
   ingress {
-    description = "All TCP — intra-cluster NCCL"
+    description = "All TCP - intra-cluster NCCL"
     from_port   = 0
     to_port     = 65535
     protocol    = "tcp"
@@ -103,7 +103,7 @@ resource "aws_security_group" "cluster_sg" {
 
   # Intra-cluster: all UDP (NCCL data plane)
   ingress {
-    description = "All UDP — intra-cluster NCCL"
+    description = "All UDP - intra-cluster NCCL"
     from_port   = 0
     to_port     = 65535
     protocol    = "udp"
@@ -112,7 +112,7 @@ resource "aws_security_group" "cluster_sg" {
 
   # Intra-cluster: EFA traffic (custom protocol number 0 = all protocols)
   ingress {
-    description = "EFA — all protocols intra-cluster"
+    description = "EFA - all protocols intra-cluster"
     from_port   = 0
     to_port     = 0
     protocol    = "-1"
