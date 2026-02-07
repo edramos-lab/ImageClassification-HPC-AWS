@@ -300,43 +300,85 @@ def main():
                 v_acc = (v_preds.argmax(1) == v_labels).float().mean().item() if len(v_labels) > 0 else 0
                 
                 if rank == 0:
-                    print(f"Epoch {epoch} | T_Loss: {t_loss:.3f} | V_Acc: {v_acc:.3f}")
-                    mlflow.log_metrics({"train_loss": t_loss, "val_acc": v_acc}, step=epoch)
+                    print(f"Epoch {epoch} | T_Loss: {t_loss:.3f} | T_Acc: {t_acc:.3f} | V_Loss: {v_loss:.3f} | V_Acc: {v_acc:.3f}")
+                    mlflow.log_metrics({
+                        "train_loss": t_loss, "train_acc": t_acc,
+                        "val_loss": v_loss, "val_acc": v_acc
+                    }, step=epoch)
 
-            # Evaluación Final (Solo Rank 0)
+            # Evaluación Final + Guardado de Modelo (Solo Rank 0)
             if rank == 0:
                 model_eval = model.module
                 model_eval.eval()
+
+                # --- GUARDAR MODELO (.pth) ---
+                models_dir = "/home/ubuntu/models"
+                os.makedirs(models_dir, exist_ok=True)
+                model_filename = f"{exp['model_name']}_exp{exp_idx}_fold{fold}.pth"
+                model_path = os.path.join(models_dir, model_filename)
+                torch.save({
+                    'model_state_dict': model_eval.state_dict(),
+                    'experiment': exp,
+                    'fold': fold,
+                    'classes': classes,
+                }, model_path)
+                print(f">>> Model saved: {model_path}")
+                mlflow.log_artifact(model_path)
+
+                # --- EVALUACIÓN EN TEST SET ---
                 _, test_probs, test_labels = evaluate(model_eval, test_loader, criterion, device)
                 
                 if len(test_labels) > 0:
                     preds = test_probs.argmax(1).cpu()
                     lbls = test_labels.cpu()
+                    num_cls = len(classes)
                     
-                    acc = Accuracy(task="multiclass", num_classes=len(classes))
-                    f1 = F1Score(task="multiclass", num_classes=len(classes), average='macro')
+                    acc = Accuracy(task="multiclass", num_classes=num_cls)
+                    prec = Precision(task="multiclass", num_classes=num_cls, average='macro')
+                    f1 = F1Score(task="multiclass", num_classes=num_cls, average='macro')
+                    mcc = MatthewsCorrCoef(task="multiclass", num_classes=num_cls)
                     
-                    mlflow.log_metrics({
-                        "test_acc": acc(preds, lbls).item(), 
-                        "test_f1": f1(preds, lbls).item()
-                    })
+                    test_metrics = {
+                        "test_acc": acc(preds, lbls).item(),
+                        "test_precision": prec(preds, lbls).item(),
+                        "test_f1": f1(preds, lbls).item(),
+                        "test_mcc": mcc(preds, lbls).item(),
+                    }
+                    mlflow.log_metrics(test_metrics)
+                    print(f">>> Test metrics: {test_metrics}")
 
-                    # GradCAM
+                    # --- CONFUSION MATRIX ---
+                    try:
+                        cm = confusion_matrix(lbls.numpy(), preds.numpy())
+                        fig, ax = plt.subplots(figsize=(8, 6))
+                        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                                    xticklabels=classes, yticklabels=classes, ax=ax)
+                        ax.set_xlabel('Predicted')
+                        ax.set_ylabel('True')
+                        ax.set_title(f'Confusion Matrix - {run_name}')
+                        cm_path = f"confusion_matrix_exp{exp_idx}_fold{fold}.png"
+                        fig.savefig(cm_path, dpi=150, bbox_inches='tight')
+                        plt.close(fig)
+                        mlflow.log_artifact(cm_path)
+                    except Exception as e:
+                        print(f"Confusion matrix error: {e}")
+
+                    # --- GRADCAM ---
                     try:
                         test_iter = iter(test_loader)
-                        imgs, _ = next(test_iter) # imgs ya normalizadas
+                        imgs, _ = next(test_iter)
                         imgs = imgs[:5].to(device)
                         cam = GradCAM(model=model_eval, target_layers=[target_layer])
                         grayscale_cam = cam(input_tensor=imgs)
                         
                         for i in range(len(imgs)):
-                            # Denormalizar para visualizar
                             img = imgs[i].cpu().permute(1, 2, 0).numpy()
                             img = (img * np.array([0.229, 0.224, 0.225])) + np.array([0.485, 0.456, 0.406])
                             img = np.clip(img, 0, 1)
                             viz = show_cam_on_image(img, grayscale_cam[i, :], use_rgb=True)
-                            plt.imsave(f"gradcam_{i}.jpg", viz)
-                            mlflow.log_artifact(f"gradcam_{i}.jpg")
+                            gradcam_path = f"gradcam_exp{exp_idx}_fold{fold}_img{i}.jpg"
+                            plt.imsave(gradcam_path, viz)
+                            mlflow.log_artifact(gradcam_path)
                     except Exception as e:
                         print(f"GradCAM error: {e}")
 
