@@ -1,0 +1,7 @@
+# =============================================================================
+# terraform.tfvars.example — Copy to terraform.tfvars and fill in your values
+# =============================================================================
+
+aws_region    = "us-east-1"
+project_name  = "dl-hpc-training"
+key_pair_name = "your-ec2-keypair-name"   # <-- REQUIRED: name of your SSH key pair
