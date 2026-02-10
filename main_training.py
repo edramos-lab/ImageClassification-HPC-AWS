@@ -223,7 +223,7 @@ def main():
         'k_folds': [2, 5],
         'lr': [1e-3, 1e-5],
         'epochs': [10, 20],
-        'optimizer': ['adam', 'adamw', 'adagrad'],
+        'optimizer': ['adam'],
         'model_name': ['convnextv1', 'custom_cnn', 'hybrid_vit']
     }
     
@@ -280,10 +280,11 @@ def main():
             model = model.to(device)
             model = DDP(model, device_ids=[local_rank], find_unused_parameters=(exp['model_name']=='hybrid_vit'))
             
-            # Optimizador
-            if exp['optimizer'] == 'adam': opt = optim.Adam(model.parameters(), lr=exp['lr'])
-            elif exp['optimizer'] == 'adamw': opt = optim.AdamW(model.parameters(), lr=exp['lr'])
-            elif exp['optimizer'] == 'adagrad': opt = optim.Adagrad(model.parameters(), lr=exp['lr'])
+            # Optimizador + Scheduler
+            opt = optim.Adam(model.parameters(), lr=exp['lr'])
+            scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+                opt, mode='min', factor=0.5, patience=3, verbose=(rank == 0)
+            )
             criterion = nn.CrossEntropyLoss()
 
             if rank == 0:
@@ -299,11 +300,16 @@ def main():
                 
                 v_acc = (v_preds.argmax(1) == v_labels).float().mean().item() if len(v_labels) > 0 else 0
                 
+                # Step scheduler based on validation loss
+                scheduler.step(v_loss)
+                current_lr = opt.param_groups[0]['lr']
+                
                 if rank == 0:
-                    print(f"Epoch {epoch} | T_Loss: {t_loss:.3f} | T_Acc: {t_acc:.3f} | V_Loss: {v_loss:.3f} | V_Acc: {v_acc:.3f}")
+                    print(f"Epoch {epoch} | T_Loss: {t_loss:.3f} | T_Acc: {t_acc:.3f} | V_Loss: {v_loss:.3f} | V_Acc: {v_acc:.3f} | LR: {current_lr:.2e}")
                     mlflow.log_metrics({
                         "train_loss": t_loss, "train_acc": t_acc,
-                        "val_loss": v_loss, "val_acc": v_acc
+                        "val_loss": v_loss, "val_acc": v_acc,
+                        "learning_rate": current_lr
                     }, step=epoch)
 
             # Evaluación Final + Guardado de Modelo (Solo Rank 0)

@@ -1,5 +1,5 @@
 # =============================================================================
-# main.tf — Provider, Data Sources, EC2 Compute (8x A100 GPU Node)
+# main.tf — Provider, Data Sources, EC2 Compute (8x V100 GPU Node)
 # =============================================================================
 
 terraform {
@@ -62,28 +62,25 @@ data "aws_ami" "deep_learning" {
 }
 
 # -----------------------------------------------------------------------------
-# EC2 Instance — p4d.24xlarge (8x NVIDIA A100, 96 vCPUs, 1.1TB RAM)
+# EC2 Instance — p3.16xlarge (8x NVIDIA V100, 64 vCPUs, 488GB RAM)
 # -----------------------------------------------------------------------------
 
 resource "aws_instance" "gpu_node" {
-  ami                    = data.aws_ami.deep_learning.id
-  instance_type          = "p4d.24xlarge"
-  key_name               = var.key_pair_name
-  iam_instance_profile   = aws_iam_instance_profile.gpu_node_profile.name
-  placement_group        = aws_placement_group.cluster_pg.id
-
-  # EFA-enabled network interface
-  network_interface {
-    device_index          = 0
-    network_interface_id  = aws_network_interface.efa_ni.id
-  }
+  ami                         = data.aws_ami.deep_learning.id
+  instance_type               = "p3.16xlarge"
+  key_name                    = var.key_pair_name
+  iam_instance_profile        = aws_iam_instance_profile.gpu_node_profile.name
+  placement_group             = aws_placement_group.cluster_pg.id
+  subnet_id                   = aws_subnet.public.id
+  vpc_security_group_ids      = [aws_security_group.cluster_sg.id]
+  associate_public_ip_address = true
 
   # Root volume: 500 GB gp3 with high IOPS for dataset I/O
   root_block_device {
     volume_size           = 500
     volume_type           = "gp3"
-    iops                  = 12000
-    throughput            = 500        # MiB/s — gp3 allows up to 1000
+    iops                  = 6000
+    throughput            = 400
     encrypted             = true
     delete_on_termination = true
   }
@@ -104,18 +101,4 @@ resource "aws_instance" "gpu_node" {
   depends_on = [
     aws_fsx_lustre_file_system.training_fs
   ]
-}
-
-# -----------------------------------------------------------------------------
-# EFA Network Interface
-# -----------------------------------------------------------------------------
-
-resource "aws_network_interface" "efa_ni" {
-  subnet_id       = aws_subnet.public.id
-  security_groups = [aws_security_group.cluster_sg.id]
-  interface_type  = "efa"
-
-  tags = {
-    Name = "${var.project_name}-efa-ni"
-  }
 }
